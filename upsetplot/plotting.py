@@ -88,11 +88,11 @@ def _check_index(df):
 
 
 def _process_data(df, sort_by, sort_categories_by, subset_size, sum_over):
-    df, agg = _aggregate_data(df, subset_size, sum_over)
+    df, _ = _aggregate_data(df, subset_size, sum_over)
+    agg = df.id
     df = _check_index(df)
 
-    totals = [agg[agg.index.get_level_values(name).values.astype(bool)].sum()
-              for name in agg.index.names]
+    totals = [agg.index.get_level_values(name).values.astype(bool).sum() for name in agg.index.names]
     totals = pd.Series(totals, index=agg.index.names)
     if sort_categories_by == 'cardinality':
         totals.sort_values(ascending=False, inplace=True)
@@ -111,7 +111,6 @@ def _process_data(df, sort_by, sort_categories_by, subset_size, sum_over):
 
     min_value = 0
     max_value = np.inf
-    agg = agg[np.logical_and(agg >= min_value, agg <= max_value)]
 
     # add '_bin' to df indicating index in agg
     # XXX: ugly!
@@ -125,9 +124,6 @@ def _process_data(df, sort_by, sort_categories_by, subset_size, sum_over):
 
     df_packed = _pack_binary(df.index.to_frame())
     data_packed = _pack_binary(agg.index.to_frame())
-    df['_bin'] = pd.Series(df_packed).map(
-        pd.Series(np.arange(len(data_packed)),
-                  index=data_packed))
 
     return df, agg, totals
 
@@ -479,6 +475,17 @@ class UpSet:
         tick_axis.grid(True)
         ax.set_ylabel('Intersection size')
 
+    def plot_labels(self, ax):
+        """Plot bars indicating intersection size
+        """
+        ax = self._reorient(ax)
+
+        ax.tick_params(axis=u'both', which=u'both',length=0, direction='out', pad=5)
+        plt.xticks(range(len(self._df.id.values)), self._df.id.values, rotation=90, va='bottom')
+        ax.yaxis.set_visible(False)
+        for x in ['top', 'bottom', 'left', 'right']:
+            ax.spines[self._reorient(x)].set_visible(False)
+
     def _label_sizes(self, ax, rects, where):
         if not self._show_counts and not self._show_percentages:
             return
@@ -610,7 +617,8 @@ class UpSet:
             ax = self._reorient(fig.add_subplot)(specs[plot['id']],
                                                  sharex=matrix_ax)
             if plot['type'] == 'default':
-                self.plot_intersections(ax)
+                # self.plot_intersections(ax)
+                self.plot_labels(ax)
             elif plot['type'] == 'catplot':
                 self._plot_catplot(ax, plot['value'], plot['kind'], plot['kw'])
             else:
