@@ -87,12 +87,15 @@ def _check_index(df):
     return df
 
 
-def _process_data(df, sort_by, sort_categories_by, subset_size, sum_over):
-    df, _ = _aggregate_data(df, subset_size, sum_over)
-    agg = df.id
-    df = _check_index(df)
+def _process_data(df, sort_by, sort_categories_by, subset_size, sum_over, plot_intersections, element_order):
 
-    totals = [agg.index.get_level_values(name).values.astype(bool).sum() for name in agg.index.names]
+    df, agg = _aggregate_data(df, subset_size, sum_over)
+    df = _check_index(df)
+    totals = [agg[agg.index.get_level_values(name).values.astype(bool)].sum()
+              for name in agg.index.names]
+    if not plot_intersections:
+        agg = pd.Series(df.id.values, index=df.index)
+        totals = [agg.index.get_level_values(name).values.astype(bool).sum() for name in agg.index.names]
     totals = pd.Series(totals, index=agg.index.names)
     if sort_categories_by == 'cardinality':
         totals.sort_values(ascending=False, inplace=True)
@@ -102,15 +105,23 @@ def _process_data(df, sort_by, sort_categories_by, subset_size, sum_over):
     agg = agg.reorder_levels(totals.index.values)
 
     if sort_by == 'cardinality':
-        agg = agg.sort_values(ascending=False)
+        agg = agg.sort_values()
     elif sort_by == 'degree':
         gb_degree = agg.groupby(sum, group_keys=False)
         agg = gb_degree.apply(lambda x: x.sort_index(ascending=False))
     else:
         raise ValueError('Unknown sort_by: %r' % sort_by)
 
+    if element_order is not None:
+        tuples = agg.index.to_list()
+        sorted_tuples = [tuples[np.where(agg.values == e)[0][0]] for e in element_order]
+        index = pd.MultiIndex.from_tuples(sorted_tuples, names=agg.index.names)
+        agg = pd.Series(element_order, index=index)
+
     min_value = 0
     max_value = np.inf
+    if plot_intersections:
+        agg = agg[np.logical_and(agg >= min_value, agg <= max_value)]
 
     # add '_bin' to df indicating index in agg
     # XXX: ugly!
@@ -124,7 +135,10 @@ def _process_data(df, sort_by, sort_categories_by, subset_size, sum_over):
 
     df_packed = _pack_binary(df.index.to_frame())
     data_packed = _pack_binary(agg.index.to_frame())
-
+    if plot_intersections:
+        df['_bin'] = pd.Series(df_packed).map(
+            pd.Series(np.arange(len(data_packed)),
+                      index=data_packed))
     return df, agg, totals
 
 
@@ -250,6 +264,11 @@ class UpSet:
         Whether to label the intersection size bars with the percentage
         of the intersection relative to the total dataset.
         This may be applied with or without show_counts.
+    plot_intersections : {True (default), False}
+         Plot intersections (canonical Upset plot), or plot each element
+         individually.
+    element_order : list of strings or None
+          Fix order of elements. Only has effect if plot_intersections == False.
 
         .. versionadded: 0.4
     """
@@ -261,7 +280,8 @@ class UpSet:
                  facecolor='black',
                  with_lines=True, element_size=32,
                  intersection_plot_elements=6, totals_plot_elements=2,
-                 show_counts='', show_percentages=False):
+                 show_counts='', show_percentages=False, plot_intersections=True,
+                 element_order=None):
 
         self._horizontal = orientation == 'horizontal'
         self._reorient = _identity if self._horizontal else _transpose
@@ -269,6 +289,8 @@ class UpSet:
         self._with_lines = with_lines
         self._element_size = element_size
         self._totals_plot_elements = totals_plot_elements
+        self._plot_intersections = plot_intersections
+        self._element_order = element_order
         self._subset_plots = [{'type': 'default',
                                'id': 'intersections',
                                'elements': intersection_plot_elements}]
@@ -282,7 +304,9 @@ class UpSet:
                                       sort_by=sort_by,
                                       sort_categories_by=sort_categories_by,
                                       subset_size=subset_size,
-                                      sum_over=sum_over)
+                                      sum_over=sum_over,
+                                      plot_intersections=self._plot_intersections,
+                                      element_order=element_order)
         if not self._horizontal:
             self.intersections = self.intersections[::-1]
 
@@ -475,9 +499,7 @@ class UpSet:
         tick_axis.grid(True)
         ax.set_ylabel('Intersection size')
 
-    def plot_labels(self, ax):
-        """Plot bars indicating intersection size
-        """
+    def plot_elements(self, ax):
         ax = self._reorient(ax)
 
         ax.tick_params(axis=u'both', which=u'both',length=0, direction='out', pad=5)
@@ -617,8 +639,10 @@ class UpSet:
             ax = self._reorient(fig.add_subplot)(specs[plot['id']],
                                                  sharex=matrix_ax)
             if plot['type'] == 'default':
-                # self.plot_intersections(ax)
-                self.plot_labels(ax)
+                if self._plot_intersections:
+                    self.plot_intersections(ax)
+                else:
+                    self.plot_elements(ax)
             elif plot['type'] == 'catplot':
                 self._plot_catplot(ax, plot['value'], plot['kind'], plot['kw'])
             else:
