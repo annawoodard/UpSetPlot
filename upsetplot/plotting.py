@@ -481,7 +481,7 @@ class UpSet:
         ax = self._reorient(ax)
 
         ax.tick_params(axis=u'both', which=u'both',length=0, direction='out', pad=5)
-        plt.xticks(range(len(self._df.id.values)), self._df.id.values, rotation=90, va='bottom')
+        plt.xticks(range(len(self._df.id.values)), self.intersections.values, rotation=90, va='bottom')
         ax.yaxis.set_visible(False)
         for x in ['top', 'bottom', 'left', 'right']:
             ax.spines[self._reorient(x)].set_visible(False)
